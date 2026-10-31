@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<title>Live Object Detector</title>
+<style>
+  :root { --ok: #22c55e; --warn: #ef4444; --fg: #fff; --bg: #000; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; background: var(--bg); color: var(--fg);
+    font-family: -apple-system, system-ui, "Segoe UI", Roboto, sans-serif; overflow: hidden; }
+  #stage { position: fixed; inset: 0; }
+  video, canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+  #banner { position: fixed; left: 12px; right: 12px; top: calc(12px + env(safe-area-inset-top));
+    padding: 14px 16px; border-radius: 14px; font-size: 20px; font-weight: 700; text-align: center;
+    background: rgba(0,0,0,.6); backdrop-filter: blur(6px); transition: background .2s; }
+  #banner.book { background: rgba(34,197,94,.85); }
+  #banner.phone { background: rgba(239,68,68,.9); }
+  #controls { position: fixed; left: 0; right: 0; bottom: calc(16px + env(safe-area-inset-bottom));
+    display: flex; gap: 10px; justify-content: center; }
+  button { font: inherit; font-size: 16px; font-weight: 600; border: 0; border-radius: 999px;
+    padding: 12px 18px; background: rgba(255,255,255,.18); color: var(--fg); backdrop-filter: blur(6px); }
+  #start { position: fixed; inset: 0; margin: auto; width: 220px; height: 64px; font-size: 20px;
+    background: var(--ok); color: #000; }
+  #fps { position: fixed; right: 12px; bottom: calc(80px + env(safe-area-inset-bottom));
+    font-size: 12px; opacity: .6; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <video id="video" playsinline muted autoplay></video>
+  <canvas id="overlay"></canvas>
+</div>
+<div id="banner">Tap Start and allow the camera</div>
+<button id="start">Start</button>
+<div id="controls" class="hidden">
+  <button id="flip">Flip camera</button>
+  <button id="mute">Sound on</button>
+</div>
+<div id="fps"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
+<script>
+// Objects to watch. Keys are COCO-SSD class names; add any of the 80 COCO classes here
+// (e.g. "cup", "laptop", "bottle", "person") to detect more objects.
+const TARGETS = {
+  "book":       { kind: "book",  label: "Book detected",  say: "Book detected" },
+  "cell phone": { kind: "phone", label: "Phone detected: keep your phone down",
+                  say: "Phone detected. Keep your phone down." },
+};
+const MIN_SCORE = 0.5;      // confidence threshold
+const STABLE_FRAMES = 2;    // must be seen this many frames in a row before announcing
+const REPEAT_MS = 5000;     // re-announce an object still in view at most this often
+const INTERVAL_MS = 120;    // detection cadence (~8 fps keeps older phones cool)
+
+const video = document.getElementById("video");
+const canvas = document.getElementById("overlay");
+const ctx = canvas.getContext("2d");
+const banner = document.getElementById("banner");
+const fpsEl = document.getElementById("fps");
+const startBtn = document.getElementById("start");
+const muteBtn = document.getElementById("mute");
+
+let model, stream, facing = "environment", soundOn = true, running = false;
+const streak = {}, lastSaid = {};
+
+function speak(text) {
+  if (!soundOn || !("speechSynthesis" in window)) return;
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  u.rate = 1.05;
+  speechSynthesis.speak(u);
+}
+
+async function openCamera() {
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = await navigator.mediaDevices.getUserMedia({
+    audio: false,
+    video: { facingMode: { ideal: facing }, width: { ideal: 640 }, height: { ideal: 480 } },
+  });
+  video.srcObject = stream;
+  await video.play();
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+}
+
+function draw(preds) {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.lineWidth = Math.max(3, canvas.width / 160);
+  ctx.font = `bold ${Math.max(16, canvas.width / 28)}px system-ui, sans-serif`;
+  for (const p of preds) {
+    const t = TARGETS[p.class];
+    const [x, y, w, h] = p.bbox;
+    const color = t.kind === "phone" ? "#ef4444" : "#22c55e";
+    ctx.strokeStyle = color;
+    ctx.strokeRect(x, y, w, h);
+    const tag = `${p.class} ${Math.round(p.score * 100)}%`;
+    const tw = ctx.measureText(tag).width + 12;
+    const th = parseInt(ctx.font.match(/\d+/)[0]) + 8;
+    ctx.fillStyle = color;
+    ctx.fillRect(x, Math.max(0, y - th), tw, th);
+    ctx.fillStyle = "#000";
+    ctx.fillText(tag, x + 6, Math.max(th - 8, y - 8));
+  }
+}
+
+function announce(preds) {
+  const now = Date.now();
+  const seen = new Set(preds.map(p => p.class));
+  for (const cls of Object.keys(TARGETS)) streak[cls] = seen.has(cls) ? (streak[cls] || 0) + 1 : 0;
+
+  // Phone outranks book: it carries the warning.
+  const order = ["cell phone", ...Object.keys(TARGETS).filter(c => c !== "cell phone")];
+  const active = order.filter(c => streak[c] >= STABLE_FRAMES);
+  if (!active.length) {
+    banner.className = "";
+    banner.textContent = "Looking for books and phones";
+    return;
+  }
+  const top = TARGETS[active[0]];
+  banner.className = top.kind;
+  banner.textContent = active.map(c => TARGETS[c].label).join(" · ");
+
+  for (const cls of active) {
+    if (!lastSaid[cls] || now - lastSaid[cls] > REPEAT_MS) {
+      lastSaid[cls] = now;
+      speak(TARGETS[cls].say);
+      if (cls === "cell phone" && navigator.vibrate) navigator.vibrate(200);
+      break; // one announcement per tick so voices do not overlap
+    }
+  }
+}
+
+async function loop() {
+  if (!running) return;
+  const t0 = performance.now();
+  if (video.readyState >= 2) {
+    const preds = (await model.detect(video, 10, MIN_SCORE)).filter(p => TARGETS[p.class]);
+    draw(preds);
+    announce(preds);
+    fpsEl.textContent = `${Math.round(performance.now() - t0)} ms / frame`;
+  }
+  setTimeout(loop, Math.max(0, INTERVAL_MS - (performance.now() - t0)));
+}
+
+async function keepAwake() {
+  try { if ("wakeLock" in navigator) await navigator.wakeLock.request("screen"); } catch (_) {}
+}
+
+startBtn.onclick = async () => {
+  startBtn.disabled = true;
+  // Unlock speech on iOS: it only plays after a user gesture.
+  if ("speechSynthesis" in window) speechSynthesis.speak(new SpeechSynthesisUtterance(""));
+  try {
+    if (!window.isSecureContext) throw new Error("Camera needs an https link");
+    banner.textContent = "Starting camera...";
+    await openCamera();
+    banner.textContent = "Loading model...";
+    model = model || await cocoSsd.load({ base: "lite_mobilenet_v2" });
+    startBtn.classList.add("hidden");
+    document.getElementById("controls").classList.remove("hidden");
+    banner.textContent = "Looking for books and phones";
+    running = true;
+    keepAwake();
+    loop();
+  } catch (e) {
+    banner.textContent = e.name === "NotAllowedError"
+      ? "Camera blocked. Allow camera access in browser settings, then reload."
+      : `Error: ${e.message}`;
+    startBtn.disabled = false;
+  }
+};
+
+document.getElementById("flip").onclick = async () => {
+  facing = facing === "environment" ? "user" : "environment";
+  await openCamera();
+};
+muteBtn.onclick = () => {
+  soundOn = !soundOn;
+  muteBtn.textContent = soundOn ? "Sound on" : "Sound off";
+  if (!soundOn) speechSynthesis.cancel();
+};
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && running) keepAwake();
+});
+</script>
+</body>
+</html>
