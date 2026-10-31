@@ -23,8 +23,8 @@
     padding: 12px 18px; background: rgba(255,255,255,.18); color: var(--fg); backdrop-filter: blur(6px); }
   #start { position: fixed; inset: 0; margin: auto; width: 220px; height: 64px; font-size: 20px;
     background: var(--ok); color: #000; }
-  #fps { position: fixed; right: 12px; bottom: calc(80px + env(safe-area-inset-bottom));
-    font-size: 12px; opacity: .6; }
+  #status { position: fixed; left: 12px; right: 12px; bottom: calc(76px + env(safe-area-inset-bottom));
+    font-size: 13px; text-align: center; opacity: .75; text-shadow: 0 1px 2px #000; }
   .hidden { display: none !important; }
 </style>
 </head>
@@ -39,33 +39,51 @@
   <button id="flip">Flip camera</button>
   <button id="mute">Sound on</button>
 </div>
-<div id="fps"></div>
+<div id="status"></div>
 
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
-<script>
-// Objects to watch. Keys are COCO-SSD class names; add any of the 80 COCO classes here
+<script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/ort.webgpu.min.js"></script>
+<script type="module">
+ort.env.wasm.wasmPaths = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/";
+
+// Objects to watch. Keys are COCO class names; add any of the 80 COCO classes here
 // (e.g. "cup", "laptop", "bottle", "person") to detect more objects.
 const TARGETS = {
   "book":       { kind: "book",  label: "Book detected",  say: "Book detected" },
   "cell phone": { kind: "phone", label: "Phone detected: keep your phone down",
                   say: "Phone detected. Keep your phone down." },
 };
-const MIN_SCORE = 0.5;      // confidence threshold
+const MIN_SCORE = 0.25;     // confidence threshold
 const STABLE_FRAMES = 2;    // must be seen this many frames in a row before announcing
+const HOLD_MS = 1200;       // keep the banner up through a missed frame or two
 const REPEAT_MS = 5000;     // re-announce an object still in view at most this often
-const INTERVAL_MS = 120;    // detection cadence (~8 fps keeps older phones cool)
+
+// YOLO11s (fp16 ONNX, NMS built in, 480px input) by default; add ?fast for YOLO11n on old phones.
+const SIZE = 480;
+const MODEL = new URLSearchParams(location.search).has("fast")
+  ? "models/yolo11n_480_fp16.onnx" : "models/yolo11s_480_fp16.onnx";
+const COCO = ["person","bicycle","car","motorcycle","airplane","bus","train","truck","boat",
+  "traffic light","fire hydrant","stop sign","parking meter","bench","bird","cat","dog","horse",
+  "sheep","cow","elephant","bear","zebra","giraffe","backpack","umbrella","handbag","tie",
+  "suitcase","frisbee","skis","snowboard","sports ball","kite","baseball bat","baseball glove",
+  "skateboard","surfboard","tennis racket","bottle","wine glass","cup","fork","knife","spoon",
+  "bowl","banana","apple","sandwich","orange","broccoli","carrot","hot dog","pizza","donut",
+  "cake","chair","couch","potted plant","bed","dining table","toilet","tv","laptop","mouse",
+  "remote","keyboard","cell phone","microwave","oven","toaster","sink","refrigerator","book",
+  "clock","vase","scissors","teddy bear","hair drier","toothbrush"];
+const prep = document.createElement("canvas");
+prep.width = prep.height = SIZE;
+const pctx = prep.getContext("2d", { willReadFrequently: true });
 
 const video = document.getElementById("video");
 const canvas = document.getElementById("overlay");
 const ctx = canvas.getContext("2d");
 const banner = document.getElementById("banner");
-const fpsEl = document.getElementById("fps");
+const statusEl = document.getElementById("status");
 const startBtn = document.getElementById("start");
 const muteBtn = document.getElementById("mute");
 
-let model, stream, facing = "environment", soundOn = true, running = false;
-const streak = {}, lastSaid = {};
+let detector, stream, facing = "environment", soundOn = true, running = false;
+const streak = {}, lastSaid = {}, lastSeen = {};
 
 function speak(text) {
   if (!soundOn || !("speechSynthesis" in window)) return;
@@ -79,7 +97,7 @@ async function openCamera() {
   if (stream) stream.getTracks().forEach(t => t.stop());
   stream = await navigator.mediaDevices.getUserMedia({
     audio: false,
-    video: { facingMode: { ideal: facing }, width: { ideal: 640 }, height: { ideal: 480 } },
+    video: { facingMode: { ideal: facing }, width: { ideal: 1280 }, height: { ideal: 720 } },
   });
   video.srcObject = stream;
   await video.play();
@@ -87,19 +105,81 @@ async function openCamera() {
   canvas.height = video.videoHeight;
 }
 
-function draw(preds) {
+let backend = "";
+async function loadDetector() {
+  const bytes = new Uint8Array(await (await fetch(MODEL)).arrayBuffer());
+  const order = "gpu" in navigator ? ["webgpu", "wasm"] : ["wasm"];
+  for (const ep of order) {
+    try {
+      const s = await ort.InferenceSession.create(bytes, { executionProviders: [ep] });
+      backend = ep;
+      return s;
+    } catch (e) { console.warn(ep, "failed", e); }
+  }
+  throw new Error("Could not start the model on this device");
+}
+
+// Letterbox the frame into a SIZE x SIZE square, run YOLO, map boxes back to video pixels.
+async function detect() {
+  const vw = video.videoWidth, vh = video.videoHeight, r = SIZE / Math.max(vw, vh);
+  pctx.fillStyle = "rgb(114,114,114)";
+  pctx.fillRect(0, 0, SIZE, SIZE);
+  pctx.drawImage(video, 0, 0, vw * r, vh * r);
+  const px = pctx.getImageData(0, 0, SIZE, SIZE).data, n = SIZE * SIZE;
+  const input = new Float32Array(3 * n);
+  for (let i = 0; i < n; i++) {
+    input[i] = px[i * 4] / 255;
+    input[i + n] = px[i * 4 + 1] / 255;
+    input[i + 2 * n] = px[i * 4 + 2] / 255;
+  }
+  const feeds = { [detector.inputNames[0]]: new ort.Tensor("float32", input, [1, 3, SIZE, SIZE]) };
+  // Output [1, 84, A]: rows 0-3 are cx cy w h, rows 4-83 class scores, A anchors.
+  const out = (await detector.run(feeds))[detector.outputNames[0]];
+  const d = out.data, A = out.dims[2], cands = [];
+  for (let a = 0; a < A; a++) {
+    let best = 0, cls = -1;
+    for (let c = 0; c < 80; c++) {
+      const s = d[(4 + c) * A + a];
+      if (s > best) { best = s; cls = c; }
+    }
+    if (best < MIN_SCORE) continue;
+    const cx = d[a], cy = d[A + a], w = d[2 * A + a], h = d[3 * A + a];
+    cands.push({ cls, score: best, x1: (cx - w / 2) / r, y1: (cy - h / 2) / r, x2: (cx + w / 2) / r, y2: (cy + h / 2) / r });
+  }
+  return nms(cands).slice(0, 20).map(b => ({
+    name: COCO[b.cls], score: b.score, target: TARGETS[COCO[b.cls]],
+    box: { originX: b.x1, originY: b.y1, width: b.x2 - b.x1, height: b.y2 - b.y1 },
+  }));
+}
+
+function iou(a, b) {
+  const w = Math.min(a.x2, b.x2) - Math.max(a.x1, b.x1), h = Math.min(a.y2, b.y2) - Math.max(a.y1, b.y1);
+  if (w <= 0 || h <= 0) return 0;
+  const inter = w * h;
+  return inter / ((a.x2 - a.x1) * (a.y2 - a.y1) + (b.x2 - b.x1) * (b.y2 - b.y1) - inter);
+}
+
+// Per-class non-max suppression.
+function nms(boxes, thr = 0.45) {
+  boxes.sort((a, b) => b.score - a.score);
+  const keep = [];
+  for (const b of boxes) if (!keep.some(k => k.cls === b.cls && iou(k, b) > thr)) keep.push(b);
+  return keep;
+}
+
+function draw(dets) {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const fontPx = Math.max(16, canvas.width / 28);
   ctx.lineWidth = Math.max(3, canvas.width / 160);
-  ctx.font = `bold ${Math.max(16, canvas.width / 28)}px system-ui, sans-serif`;
-  for (const p of preds) {
-    const t = TARGETS[p.class];
-    const [x, y, w, h] = p.bbox;
-    const color = t.kind === "phone" ? "#ef4444" : "#22c55e";
+  ctx.font = `bold ${fontPx}px system-ui, sans-serif`;
+  for (const d of dets) {
+    const { originX: x, originY: y, width: w, height: h } = d.box;
+    const color = d.target ? (d.target.kind === "phone" ? "#ef4444" : "#22c55e") : "rgba(255,255,255,.5)";
     ctx.strokeStyle = color;
     ctx.strokeRect(x, y, w, h);
-    const tag = `${p.class} ${Math.round(p.score * 100)}%`;
-    const tw = ctx.measureText(tag).width + 12;
-    const th = parseInt(ctx.font.match(/\d+/)[0]) + 8;
+    if (!d.target) continue;
+    const tag = `${d.name} ${Math.round(d.score * 100)}%`;
+    const tw = ctx.measureText(tag).width + 12, th = fontPx + 8;
     ctx.fillStyle = color;
     ctx.fillRect(x, Math.max(0, y - th), tw, th);
     ctx.fillStyle = "#000";
@@ -107,43 +187,50 @@ function draw(preds) {
   }
 }
 
-function announce(preds) {
+function announce(dets) {
   const now = Date.now();
-  const seen = new Set(preds.map(p => p.class));
-  for (const cls of Object.keys(TARGETS)) streak[cls] = seen.has(cls) ? (streak[cls] || 0) + 1 : 0;
+  const seen = new Set(dets.filter(d => d.target).map(d => d.name));
+  for (const cls of Object.keys(TARGETS)) {
+    streak[cls] = seen.has(cls) ? (streak[cls] || 0) + 1 : 0;
+    if (streak[cls] >= STABLE_FRAMES) lastSeen[cls] = now;
+  }
 
   // Phone outranks book: it carries the warning.
   const order = ["cell phone", ...Object.keys(TARGETS).filter(c => c !== "cell phone")];
-  const active = order.filter(c => streak[c] >= STABLE_FRAMES);
+  const active = order.filter(c => lastSeen[c] && now - lastSeen[c] < HOLD_MS);
   if (!active.length) {
     banner.className = "";
     banner.textContent = "Looking for books and phones";
     return;
   }
-  const top = TARGETS[active[0]];
-  banner.className = top.kind;
+  banner.className = TARGETS[active[0]].kind;
   banner.textContent = active.map(c => TARGETS[c].label).join(" · ");
 
   for (const cls of active) {
-    if (!lastSaid[cls] || now - lastSaid[cls] > REPEAT_MS) {
+    if (streak[cls] >= STABLE_FRAMES && (!lastSaid[cls] || now - lastSaid[cls] > REPEAT_MS)) {
       lastSaid[cls] = now;
       speak(TARGETS[cls].say);
       if (cls === "cell phone" && navigator.vibrate) navigator.vibrate(200);
-      break; // one announcement per tick so voices do not overlap
+      break; // one announcement per frame so voices do not overlap
     }
   }
 }
 
 async function loop() {
   if (!running) return;
-  const t0 = performance.now();
   if (video.readyState >= 2) {
-    const preds = (await model.detect(video, 10, MIN_SCORE)).filter(p => TARGETS[p.class]);
-    draw(preds);
-    announce(preds);
-    fpsEl.textContent = `${Math.round(performance.now() - t0)} ms / frame`;
+    const t0 = performance.now();
+    try {
+      const dets = await detect();
+      draw(dets);
+      announce(dets);
+      const top = dets.slice(0, 3).map(d => `${d.name} ${Math.round(d.score * 100)}%`).join(", ");
+      statusEl.textContent = `${backend} ${Math.round(performance.now() - t0)} ms · sees: ${top || "nothing"}`;
+    } catch (e) {
+      statusEl.textContent = `Error: ${e.message}`;
+    }
   }
-  setTimeout(loop, Math.max(0, INTERVAL_MS - (performance.now() - t0)));
+  requestAnimationFrame(loop);
 }
 
 async function keepAwake() {
@@ -153,13 +240,15 @@ async function keepAwake() {
 startBtn.onclick = async () => {
   startBtn.disabled = true;
   // Unlock speech on iOS: it only plays after a user gesture.
-  if ("speechSynthesis" in window) speechSynthesis.speak(new SpeechSynthesisUtterance(""));
+  if ("speechSynthesis" in window) speechSynthesis.speak(new SpeechSynthesisUtterance(" "));
   try {
     if (!window.isSecureContext) throw new Error("Camera needs an https link");
     banner.textContent = "Starting camera...";
+    // Model download runs alongside the camera prompt.
+    const loading = detector ? Promise.resolve(detector) : loadDetector();
     await openCamera();
-    banner.textContent = "Loading model...";
-    model = model || await cocoSsd.load({ base: "lite_mobilenet_v2" });
+    banner.textContent = "Downloading model (about 18 MB, first time only)...";
+    detector = await loading;
     startBtn.classList.add("hidden");
     document.getElementById("controls").classList.remove("hidden");
     banner.textContent = "Looking for books and phones";
