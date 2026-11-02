@@ -9,7 +9,7 @@ if [ "$(uname -m)" != "aarch64" ]; then
 fi
 
 sudo apt update
-sudo apt install -y mpv python3-opencv python3-numpy python3-yaml python3-pil \
+sudo apt install -y mpv ffmpeg git python3-opencv python3-numpy python3-yaml python3-pil \
   python3-picamera2 python3-venv fonts-noto-core
 
 # ncnn is the only pip package; everything else comes from apt (lighter on a 1 GB Pi 3).
@@ -24,6 +24,7 @@ sudo raspi-config nonint do_blanking 1 || true
 
 echo
 echo "Setup done. Next:"
-echo "  1. Speed check:  .venv/bin/python bench.py      (needs 2 fps or more)"
-echo "  2. Try it:       ./run.sh                         (q in the camera window quits)"
-echo "  3. Reboot: the kiosk starts by itself."
+echo "  1. Speed check:  .venv/bin/python bench.py                  (needs 2 fps or more)"
+echo "  2. Your video:   bash add_video.sh /path/to/video.mp4 phone"
+echo "  3. Try it:       ./run.sh                                     (q in the camera window quits)"
+echo "  4. Reboot: the kiosk starts by itself."

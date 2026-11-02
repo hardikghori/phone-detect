@@ -2,6 +2,8 @@
 
 A camera watches a small table. When someone holds a phone up to it, the phone advice video plays full screen. When the video ends, the camera comes back on and waits for the next object. No internet, nothing recorded.
 
+**Setting it up for the first time? Follow [SETUP_GUIDE.md](SETUP_GUIDE.md).**
+
 ## What you need
 - Raspberry Pi 3 (Pi 4 or 5 is faster), heatsink, 2.5 A power supply
 - microSD card, 16 GB or more, with **Raspberry Pi OS 64-bit (Bookworm, with desktop)**. Flash it with Raspberry Pi Imager.
@@ -10,9 +12,8 @@ A camera watches a small table. When someone holds a phone up to it, the phone a
 
 ## Setup (once)
 1. Copy this `pi` folder to the Pi, for example to `/home/pi/kiosk`.
-2. Put your phone video in `videos/phone.mp4`. Convert it first on any computer so the Pi 3 plays it smoothly:
-   `ffmpeg -i original.mp4 -vf scale=-2:720 -c:v libx264 -preset slow -crf 23 -c:a aac phone.mp4`
-3. On the Pi: `cd ~/kiosk && bash setup_pi.sh`
+2. On the Pi: `cd ~/kiosk && bash setup_pi.sh`
+3. Add your video (converted to 720p on the Pi): `bash add_video.sh /path/to/video.mp4 phone`
 4. Speed check: `.venv/bin/python bench.py`. You need 2 fps or more at 320px.
 5. Reboot. The kiosk starts by itself.
 
