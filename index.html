@@ -17,6 +17,7 @@
     background: rgba(0,0,0,.6); backdrop-filter: blur(6px); transition: background .2s; }
   #banner.book { background: rgba(34,197,94,.85); }
   #banner.phone { background: rgba(239,68,68,.9); }
+  #banner.toy { background: rgba(245,158,11,.9); }
   #controls { position: fixed; left: 0; right: 0; bottom: calc(16px + env(safe-area-inset-bottom));
     display: flex; gap: 10px; justify-content: center; }
   button { font: inherit; font-size: 16px; font-weight: 600; border: 0; border-radius: 999px;
@@ -45,13 +46,18 @@
 <script type="module">
 ort.env.wasm.wasmPaths = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/";
 
-// Objects to watch. Keys are COCO class names; add any of the 80 COCO classes here
-// (e.g. "cup", "laptop", "bottle", "person") to detect more objects.
-const TARGETS = {
-  "book":       { kind: "book",  label: "Book detected",  say: "Book detected" },
-  "cell phone": { kind: "phone", label: "Phone detected: keep your phone down",
-                  say: "Phone detected. Keep your phone down." },
+// Objects to watch, in priority order (phone first: it carries the warning).
+// `classes` are COCO names that count as the object; add any of the 80 COCO classes
+// (see COCO below) to detect more.
+const OBJECTS = {
+  phone: { classes: ["cell phone", "remote"],  // small models often call a black phone a remote
+           label: "Phone detected: keep your phone down", say: "Phone detected. Keep your phone down." },
+  book:  { classes: ["book"], label: "Book detected", say: "Book detected" },
+  toy:   { classes: ["teddy bear", "sports ball", "kite", "frisbee"],  // plush toys mostly read as "teddy bear"
+           label: "Toy detected", say: "Toy detected" },
 };
+const TARGETS = {};  // COCO class name -> object key
+for (const [key, o] of Object.entries(OBJECTS)) for (const c of o.classes) TARGETS[c] = key;
 const MIN_SCORE = 0.25;     // confidence threshold
 const STABLE_FRAMES = 2;    // must be seen this many frames in a row before announcing
 const HOLD_MS = 1200;       // keep the banner up through a missed frame or two
@@ -174,7 +180,7 @@ function draw(dets) {
   ctx.font = `bold ${fontPx}px system-ui, sans-serif`;
   for (const d of dets) {
     const { originX: x, originY: y, width: w, height: h } = d.box;
-    const color = d.target ? (d.target.kind === "phone" ? "#ef4444" : "#22c55e") : "rgba(255,255,255,.5)";
+    const color = d.target ? COLORS[d.target] : "rgba(255,255,255,.5)";
     ctx.strokeStyle = color;
     ctx.strokeRect(x, y, w, h);
     if (!d.target) continue;
@@ -187,30 +193,31 @@ function draw(dets) {
   }
 }
 
+const COLORS = { phone: "#ef4444", book: "#22c55e", toy: "#f59e0b" };
+const IDLE_TEXT = "Looking for phones, books and toys";
+
 function announce(dets) {
   const now = Date.now();
-  const seen = new Set(dets.filter(d => d.target).map(d => d.name));
-  for (const cls of Object.keys(TARGETS)) {
-    streak[cls] = seen.has(cls) ? (streak[cls] || 0) + 1 : 0;
-    if (streak[cls] >= STABLE_FRAMES) lastSeen[cls] = now;
+  const seen = new Set(dets.filter(d => d.target).map(d => d.target));
+  for (const key of Object.keys(OBJECTS)) {
+    streak[key] = seen.has(key) ? (streak[key] || 0) + 1 : 0;
+    if (streak[key] >= STABLE_FRAMES) lastSeen[key] = now;
   }
 
-  // Phone outranks book: it carries the warning.
-  const order = ["cell phone", ...Object.keys(TARGETS).filter(c => c !== "cell phone")];
-  const active = order.filter(c => lastSeen[c] && now - lastSeen[c] < HOLD_MS);
+  const active = Object.keys(OBJECTS).filter(k => lastSeen[k] && now - lastSeen[k] < HOLD_MS);
   if (!active.length) {
     banner.className = "";
-    banner.textContent = "Looking for books and phones";
+    banner.textContent = IDLE_TEXT;
     return;
   }
-  banner.className = TARGETS[active[0]].kind;
-  banner.textContent = active.map(c => TARGETS[c].label).join(" · ");
+  banner.className = active[0];
+  banner.textContent = active.map(k => OBJECTS[k].label).join(" · ");
 
-  for (const cls of active) {
-    if (streak[cls] >= STABLE_FRAMES && (!lastSaid[cls] || now - lastSaid[cls] > REPEAT_MS)) {
-      lastSaid[cls] = now;
-      speak(TARGETS[cls].say);
-      if (cls === "cell phone" && navigator.vibrate) navigator.vibrate(200);
+  for (const key of active) {
+    if (streak[key] >= STABLE_FRAMES && (!lastSaid[key] || now - lastSaid[key] > REPEAT_MS)) {
+      lastSaid[key] = now;
+      speak(OBJECTS[key].say);
+      if (key === "phone" && navigator.vibrate) navigator.vibrate(200);
       break; // one announcement per frame so voices do not overlap
     }
   }
@@ -251,7 +258,7 @@ startBtn.onclick = async () => {
     detector = await loading;
     startBtn.classList.add("hidden");
     document.getElementById("controls").classList.remove("hidden");
-    banner.textContent = "Looking for books and phones";
+    banner.textContent = IDLE_TEXT;
     running = true;
     keepAwake();
     loop();
