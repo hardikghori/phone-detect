@@ -1,0 +1,5 @@
+[Desktop Entry]
+Type=Application
+Name=Annakut Kiosk
+Exec=__DIR__/run.sh
+X-GNOME-Autostart-enabled=true

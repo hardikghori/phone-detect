@@ -1,0 +1,31 @@
+# Annakut kiosk settings. Edit this file, then restart the kiosk.
+
+model: yolo11n_320        # folder in models/ (yolo11n_416 is more accurate, slower)
+size: 320                 # must match the model folder
+camera: auto              # auto | picamera | usb
+camera_index: 0           # USB webcam number
+fullscreen: true
+
+min_score: 0.35           # model confidence needed to count a sighting
+steady_seconds: 0.8       # object must stay in view this long before its video plays
+lockout_after_video_s: 3  # ignore the camera this long after any video ends
+
+prompt_en: "Show a phone to the camera"
+prompt_gu: "કેમેરા સામે ફોન બતાવો"
+
+# One entry per object. Add a video file and a block here to add an object.
+# classes: COCO names that count as this object (see detector.py for all 80).
+# min_area: how much of the frame the object must cover (0.03 = 3%), so phones far
+#           away in the crowd do not trigger it.
+# Objects whose video file is missing are skipped.
+objects:
+  phone:
+    classes: ["cell phone", "remote"]   # YOLO11n often calls a black phone a remote
+    video: videos/phone.mp4
+    min_area: 0.03
+    cooldown_s: 60
+  book:
+    classes: ["book"]
+    video: videos/book.mp4
+    min_area: 0.05
+    cooldown_s: 60

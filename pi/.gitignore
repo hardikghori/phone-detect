@@ -1,0 +1,4 @@
+plays.csv
+kiosk.log
+.venv/
+__pycache__/
