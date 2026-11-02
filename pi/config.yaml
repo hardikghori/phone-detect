@@ -10,8 +10,8 @@ min_score: 0.35           # model confidence needed to count a sighting
 steady_seconds: 0.8       # object must stay in view this long before its video plays
 lockout_after_video_s: 3  # ignore the camera this long after any video ends
 
-prompt_en: "Show a phone to the camera"
-prompt_gu: "કેમેરા સામે ફોન બતાવો"
+prompt_en: "Show a phone, a book or a toy to the camera"
+prompt_gu: "કેમેરા સામે ફોન, ચોપડી કે રમકડું બતાવો"  # avoid joined letters: the overlay cannot shape them
 
 # One entry per object. Add a video file and a block here to add an object.
 # classes: COCO names that count as this object (see detector.py for all 80).
@@ -28,4 +28,11 @@ objects:
     classes: ["book"]
     video: videos/book.mp4
     min_area: 0.05
+    cooldown_s: 60
+  toy:
+    # "toy" is not one of the 80 classes, so list the toy kinds the model knows.
+    # Teddy bears detect best (87 to 96% in tests); a toy car shows up as "car".
+    classes: ["teddy bear", "sports ball", "car"]
+    video: videos/toy.mp4
+    min_area: 0.03
     cooldown_s: 60

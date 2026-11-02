@@ -1,6 +1,6 @@
 # Setting up the Annakut kiosk (about 45 minutes)
 
-What it does: a camera looks at a table. When someone holds a phone up to it, your video plays on the TV. When the video ends, the camera comes back on. Runs fully offline after setup.
+What it does: a camera looks at a table. When someone holds up a phone, a book or a toy, that object's video plays on the TV. When the video ends, the camera comes back on. Runs fully offline after setup.
 
 ## You need
 - Raspberry Pi 3, its power supply, microSD card (16 GB or more)
@@ -36,18 +36,25 @@ This takes 10 to 15 minutes. It ends with "Setup done".
 ```
 It prints two lines ending in PASS or TOO SLOW. **Take a photo of the screen and send it to Hardik.**
 
-## Step 5: Add your video
-Plug in the USB stick. It shows up under `/media/` (your username, then the stick's name). Then:
+## Step 5: Add your 3 videos
+Plug in the USB stick. It shows up under `/media/` (your username, then the stick's name). Run one line per video. The last word says which object the video is for:
 ```
-bash add_video.sh /media/YOURNAME/STICKNAME/your-video.mp4 phone
+bash add_video.sh /media/YOURNAME/STICKNAME/phone.mp4 phone
+bash add_video.sh /media/YOURNAME/STICKNAME/book.mp4 book
+bash add_video.sh /media/YOURNAME/STICKNAME/toy.mp4 toy
 ```
 Tip: type `bash add_video.sh /media/` then press Tab to fill in the path.
+
+What counts as each object:
+- **phone**: any mobile phone held up close
+- **book**: a book held up with the cover facing the camera works best
+- **toy**: use a **teddy bear** (detects best). A ball or a toy car also work.
 
 ## Step 6: Try it
 ```
 ./run.sh
 ```
-The camera picture fills the screen. Hold a phone up close, about 30 to 60 cm from the camera, for one second. The video should play, then the camera comes back.
+The camera picture fills the screen. Hold a phone up close, about 30 to 60 cm from the camera, for one second. The phone video should play, then the camera comes back. Do the same with a book and a teddy bear.
 - Press `q` in the camera screen to stop. While a video plays, `q` skips it.
 - After a video, the same phone won't replay for 60 seconds. That's on purpose.
 
