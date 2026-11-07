@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs the kiosk and restarts it if it crashes. Pressing q in the camera window stops it for good.
+# Runs the kiosk and restarts it if it crashes. Pressing q on the video screen stops it for good.
 cd "$(dirname "$0")"
 export DISPLAY="${DISPLAY:-:0}"
 while true; do

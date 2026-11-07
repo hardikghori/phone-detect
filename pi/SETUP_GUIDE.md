@@ -1,34 +1,33 @@
-# Setting up the Annakut kiosk (about 45 minutes)
+# Setting up the Annakut "crying baby" kiosk (about 45 minutes)
 
-What it does: a camera looks at a table. When someone holds up a phone, a book or a toy, that object's video plays on the TV. When the video ends, the camera comes back on. Runs fully offline after setup.
+What it does: the screen shows a crying baby. A camera looks down into a small doll-house room. A visitor picks one object (phone, book or toy) and puts it in the room. That object's video plays, then a thank-you screen, then the crying baby again for the next person. Runs fully offline after setup.
 
 ## You need
-- Raspberry Pi 3, its power supply, microSD card (16 GB or more)
-- Pi camera (ribbon cable) or a USB webcam
-- TV or monitor with an HDMI cable, plus a USB keyboard and mouse for setup
+- **Jetson Orin** (Orin Nano or Orin NX) with JetPack 6 already on it, and its power supply. Use the Orin, not the old Jetson Nano: the Nano's software is too old for this.
+- A camera: USB webcam, or a ribbon camera for the Jetson (IMX219 type)
+- The digital screen with an HDMI or DisplayPort cable, and speakers if the screen has none
+- USB keyboard and mouse for setup
 - Wi-Fi or a network cable **for setup only**
-- A computer with an SD card slot (to prepare the card)
-- The phone video file (put it on a USB stick)
+- The 4 videos from the content team on a USB stick: `baby.mp4`, `phone.mp4`, `book.mp4`, `toy.mp4`
 
-## Step 1: Prepare the SD card (on a computer)
-1. Install **Raspberry Pi Imager** from raspberrypi.com/software.
-2. Device: **Raspberry Pi 3**.
-3. Operating system: choose **Raspberry Pi OS (64-bit)**. If you only see 32-bit, open "Raspberry Pi OS (other)" and pick the **64-bit** one with desktop. 32-bit will not work.
-4. Storage: the SD card. When it asks about settings, set a username and password and enter your Wi-Fi.
-5. Write, then put the card in the Pi.
+## Step 1: Build the room
+1. Mount the camera on the room's ceiling, looking straight down at the floor.
+2. Light the room evenly (a small LED strip inside works). Avoid shadows and reflections.
+3. Plain floor color that is different from the objects (for example light beige). Not black, not patterned.
+4. Leave space for only one object.
 
 ## Step 2: First start
-1. If you use the Pi camera, connect the ribbon cable **before** powering on (blue side facing the black USB/Ethernet ports on a Pi 3).
-2. Connect TV, keyboard, mouse, then power. Wait for the desktop.
-3. Open **Terminal** (black icon at the top).
+1. Ribbon camera: connect it **before** powering on. USB camera: plug it in.
+2. Connect the screen, keyboard, mouse, then power. Log in to the desktop.
+3. Open **Terminal** (Ctrl+Alt+T).
 
 ## Step 3: Install (type these in Terminal, one line at a time)
 ```
 git clone https://github.com/hardikghori/phone-detect.git
 cd phone-detect/pi
-bash setup_pi.sh
+bash setup_jetson.sh
 ```
-This takes 10 to 15 minutes. It ends with "Setup done".
+This takes about 10 minutes. It ends with "Setup done".
 
 ## Step 4: Speed check
 ```
@@ -36,34 +35,37 @@ This takes 10 to 15 minutes. It ends with "Setup done".
 ```
 It prints two lines ending in PASS or TOO SLOW. **Take a photo of the screen and send it to Hardik.**
 
-## Step 5: Add your 3 videos
-Plug in the USB stick. It shows up under `/media/` (your username, then the stick's name). Run one line per video. The last word says which object the video is for:
+## Step 5: Aim the camera
 ```
+.venv/bin/python kiosk.py --aim
+```
+The camera picture opens with green boxes around what it sees. Put each real object in the room, one at a time, in a few positions. The bottom line says "counts as: phone" (or book, toy) when it works. Press `q` to close.
+**Take a photo of the screen for each object and send it to Hardik.** If an object does not show up, tell him which one: he can tune it or train the model on your exact objects.
+
+## Step 6: Add the 4 videos
+Plug in the USB stick. It shows up under `/media/` (your username, then the stick's name). Run one line per video:
+```
+bash add_video.sh /media/YOURNAME/STICKNAME/baby.mp4 baby
 bash add_video.sh /media/YOURNAME/STICKNAME/phone.mp4 phone
 bash add_video.sh /media/YOURNAME/STICKNAME/book.mp4 book
 bash add_video.sh /media/YOURNAME/STICKNAME/toy.mp4 toy
 ```
 Tip: type `bash add_video.sh /media/` then press Tab to fill in the path.
+The thank-you screen is already included (`videos/thanks.png`). To use your own, replace that file, or put a `thanks.mp4` there and change `thanks:` in `config.yaml`.
 
-What counts as each object:
-- **phone**: any mobile phone held up close
-- **book**: a book held up with the cover facing the camera works best
-- **toy**: use a **teddy bear** (detects best). A ball or a toy car also work.
-
-## Step 6: Try it
+## Step 7: Try it
 ```
 ./run.sh
 ```
-The camera picture fills the screen. Hold a phone up close, about 30 to 60 cm from the camera, for one second. The phone video should play, then the camera comes back. Do the same with a book and a teddy bear.
-- Press `q` in the camera screen to stop. While a video plays, `q` skips it.
-- After a video, the same phone won't replay for 60 seconds. That's on purpose.
+The crying baby plays full screen. Put a phone in the room: after about 1 second the phone video plays, then thank you, then the baby again.
+- Take the object out before the next person. A new object only counts after the room has been empty for 2 seconds, so a left-behind object never replays.
+- Keys: `1` phone video, `2` book video, `3` toy video, `0` skip, `q` quit.
 
-## Step 7: Make it start by itself
-Reboot (Pi menu, Shutdown, Reboot). The kiosk opens on its own. You can unplug the keyboard and the Wi-Fi now. It works offline.
+## Step 8: Make it start by itself
+Reboot. The kiosk opens on its own. You can unplug the keyboard and the network now.
 
 ## If something goes wrong
-- **"This needs the 64-bit Raspberry Pi OS"**: redo Step 1 and choose 64-bit.
-- **"no camera found"**: check the cable, then reboot. Make sure the USB webcam is plugged in before starting.
-- **No sound**: right-click the speaker icon at the top and choose HDMI (or AV jack for speakers).
-- **Video doesn't play when a phone is shown**: hold it closer and still. The text at the bottom of the camera screen shows what it sees (for example "cell phone 80%").
+- **"no camera found"**: check the cable, then reboot.
+- **No sound**: click the speaker icon at the top right and choose the screen (HDMI/DisplayPort) or your speakers.
+- **Object not detected**: run Step 5 again and look at the "counts as" line. Better light usually fixes it.
 - Anything else: send Hardik a photo of the screen, plus the last lines of `kiosk.log` (`tail kiosk.log`).

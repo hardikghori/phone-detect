@@ -1,42 +1,31 @@
-# Annakut kiosk (Raspberry Pi, fully offline)
+# Annakut "crying baby" kiosk (Jetson Orin or Raspberry Pi, fully offline)
 
-A camera watches a small table. When someone holds a phone up to it, the phone advice video plays full screen. When the video ends, the camera comes back on and waits for the next object. No internet, nothing recorded.
+The screen loops a crying baby video. A camera looks down into a small doll-house room. A visitor puts one object in the room (phone, book or toy) and that object's 15 to 20 second video plays, then a thank-you screen, then the crying baby again. No internet, nothing recorded.
 
 **Setting it up for the first time? Follow [SETUP_GUIDE.md](SETUP_GUIDE.md).**
 
-## What you need
-- Raspberry Pi 3 (Pi 4 or 5 is faster), heatsink, 2.5 A power supply
-- microSD card, 16 GB or more, with **Raspberry Pi OS 64-bit (Bookworm, with desktop)**. Flash it with Raspberry Pi Imager.
-- Pi Camera Module or any USB webcam
-- TV or monitor over HDMI, with sound (HDMI audio or speakers on the 3.5 mm jack)
-
-## Setup (once)
-1. Copy this `pi` folder to the Pi, for example to `/home/pi/kiosk`.
-2. On the Pi: `cd ~/kiosk && bash setup_pi.sh`
-3. Add your video (converted to 720p on the Pi): `bash add_video.sh /path/to/video.mp4 phone`
-4. Speed check: `.venv/bin/python bench.py`. You need 2 fps or more at 320px.
-5. Reboot. The kiosk starts by itself.
-
-## Using it
-- Point the camera at a table with a sign: "Show your phone here".
-- The phone must be fairly close (3% of the picture or more) and held still for about 1 second. Phones far away in the crowd are ignored on purpose.
-- After a video, the same object will not replay for 60 seconds.
-- Keys (plug in a keyboard): `p` plays the phone video now, `q` quits. While a video plays, `q` skips it.
+## How it decides
+- The object must sit in the room for 1 second (`steady_seconds`) with enough model confidence (`min_score`).
+- After a video, the room must be empty for 2 seconds (`empty_seconds`) before the next object counts. A left-behind object never replays.
+- If two objects are in the room, the one listed first in `config.yaml` wins.
 - Every play is logged in `plays.csv`.
 
-## Add another object
-1. Put its video in `videos/`, e.g. `videos/book.mp4`.
-2. Add a block in `config.yaml` (a book block is already there and turns on once `videos/book.mp4` exists). Any of the 80 COCO objects works: cup, bottle, laptop, clock, and so on (full list in `detector.py`).
-3. Objects not in that list (a mala, prasad) need a small custom model trained on about 150 photos each.
+## Hardware
+- **Jetson Orin** (JetPack 6): `bash setup_jetson.sh`. The original Jetson Nano (JetPack 4, Python 3.6) is too old for this code.
+- Raspberry Pi (64-bit Bookworm): `bash setup_pi.sh`. Slower but works.
+- Camera: USB webcam, Jetson ribbon camera (GStreamer), or Pi camera. `camera: auto` finds it.
+- Video plays in one full-screen mpv window, controlled over mpv's IPC, so switching videos never shows the desktop.
 
-## Settings
-All in `config.yaml`: model size (320 or 416), how close an object must be (`min_area`), how long it must be held (`steady_seconds`), cooldown, and the on-screen prompt in English and Gujarati.
-
-## Testing without a camera
-`python kiosk.py --source tests/phone_black.jpg --run-for 15` plays the video once, then the cooldown holds.
-`python check_photos.py tests/*.jpg` prints what the model sees.
+## Files
+- `kiosk.py`: the kiosk. `--aim` shows the camera with boxes, for setup.
+- `config.yaml`: videos, objects, timings.
+- `detector.py`: YOLO11n (Ultralytics, COCO) exported to NCNN, run with the bare `ncnn` package. Same code on Jetson, Pi and a laptop.
+- `bench.py`: speed check. `check_photos.py`: what the model sees in photos.
+- `add_video.sh`: converts a video to 720p into `videos/`.
 
 ## Notes
-- Model: YOLO11n (Ultralytics, COCO), exported to NCNN. Runs with the bare `ncnn` package, no PyTorch, to fit in the Pi 3's 1 GB.
+- The camera looks down from the ceiling. COCO models learned mostly from side views, so check every real object with `--aim` before the event. If one is weak, the fix is a small custom model trained on about 100 photos of each real object in the room.
 - YOLO11n often calls a black phone a "remote", so the phone object accepts both.
-- Test photos in `tests/` are from Wikimedia Commons (see `tests/CREDITS.md`).
+
+## Testing without a camera
+`python kiosk.py --source clip.mp4 --videos some/folder --run-for 45` uses a recorded clip as the camera and the videos in that folder.

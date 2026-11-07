@@ -1,4 +1,4 @@
-"""Day-1 check on the Raspberry Pi: is it fast enough? Pass = 2 fps or more, RAM under 700 MB.
+"""Day-1 check on the board (Jetson or Pi): is it fast enough? Pass = 2 fps or more.
 
 Usage: python bench.py
 """
