@@ -22,20 +22,36 @@
     display: flex; gap: 10px; justify-content: center; }
   button { font: inherit; font-size: 16px; font-weight: 600; border: 0; border-radius: 999px;
     padding: 12px 18px; background: rgba(255,255,255,.18); color: var(--fg); backdrop-filter: blur(6px); }
-  #start { position: fixed; inset: 0; margin: auto; width: 220px; height: 64px; font-size: 20px;
-    background: var(--ok); color: #000; }
+  #starts { position: fixed; inset: 0; display: flex; flex-direction: column; gap: 14px;
+    align-items: center; justify-content: center; pointer-events: none; }
+  #starts button { pointer-events: auto; width: 260px; }
+  #start { height: 64px; font-size: 20px; background: var(--ok); color: #000; }
+  #startDetect { height: 52px; }
+  /* Kiosk: crying baby full screen, camera small in the corner */
+  #screen, #thanks { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; }
+  body:not(.kiosk) #screen, body:not(.kiosk) #thanks { display: none; }
+  body.kiosk #stage { inset: auto; right: 12px; bottom: calc(12px + env(safe-area-inset-bottom));
+    width: 24vw; min-width: 140px; aspect-ratio: 4 / 3; border: 2px solid rgba(255,255,255,.35);
+    border-radius: 10px; overflow: hidden; background: #000; z-index: 2; }
+  body.kiosk #banner, body.kiosk #status { display: none; }
+  body.kiosk #controls { justify-content: flex-start; padding-left: 12px; z-index: 3; }
   #status { position: fixed; left: 12px; right: 12px; bottom: calc(76px + env(safe-area-inset-bottom));
     font-size: 13px; text-align: center; opacity: .75; text-shadow: 0 1px 2px #000; }
   .hidden { display: none !important; }
 </style>
 </head>
 <body>
+<video id="screen" playsinline></video>
+<img id="thanks" class="hidden" alt="Thank you">
 <div id="stage">
   <video id="video" playsinline muted autoplay></video>
   <canvas id="overlay"></canvas>
 </div>
 <div id="banner">Tap Start and allow the camera</div>
-<button id="start">Start</button>
+<div id="starts">
+  <button id="start">Start kiosk (crying baby)</button>
+  <button id="startDetect">Detector only</button>
+</div>
 <div id="controls" class="hidden">
   <button id="flip">Flip camera</button>
   <button id="mute">Sound on</button>
@@ -230,7 +246,7 @@ async function loop() {
     try {
       const dets = await detect();
       draw(dets);
-      announce(dets);
+      if (kiosk) kioskStep(dets); else announce(dets);
       const top = dets.slice(0, 3).map(d => `${d.name} ${Math.round(d.score * 100)}%`).join(", ");
       statusEl.textContent = `${backend} ${Math.round(performance.now() - t0)} ms · sees: ${top || "nothing"}`;
     } catch (e) {
@@ -240,12 +256,74 @@ async function loop() {
   requestAnimationFrame(loop);
 }
 
+// Kiosk mode: the same loop as the offline Jetson/Pi kiosk (pi/kiosk.py).
+// Crying baby loops; an object that sits in view for 1 s plays its video, then thank you,
+// then the baby again. The view must be empty for 2 s, and the baby cries at least 3 s, before the next one.
+const KIOSK = {
+  baby: "pi/videos/baby.mp4", thanks: "pi/videos/thanks.png", thanksMs: 3000,
+  videos: { phone: "pi/videos/phone.mp4", book: "pi/videos/book.mp4", toy: "pi/videos/toy.mp4" },
+  minScore: 0.35, minArea: 0.02, steadyMs: 1000, emptyMs: 2000, cooldownMs: 3000,
+};
+const screenEl = document.getElementById("screen");
+const thanksEl = document.getElementById("thanks");
+thanksEl.src = KIOSK.thanks;
+let kiosk = false, kstate = "baby", needEmpty = true, lastTarget = Date.now(), babySince = Date.now();
+const firstSeen = {}, lastHere = {};
+
+function showBaby() {
+  thanksEl.classList.add("hidden");
+  screenEl.loop = true;
+  screenEl.src = KIOSK.baby;
+  screenEl.muted = !soundOn;
+  screenEl.play().catch(() => {});
+  kstate = "baby";
+  babySince = Date.now();
+}
+
+function playObject(key) {
+  kstate = "video";
+  needEmpty = true;
+  for (const k in firstSeen) delete firstSeen[k];
+  screenEl.loop = false;
+  screenEl.src = KIOSK.videos[key];
+  screenEl.play().catch(() => {});
+}
+
+screenEl.onended = () => {
+  if (kstate !== "video") return;
+  kstate = "thanks";
+  thanksEl.classList.remove("hidden");
+  setTimeout(showBaby, KIOSK.thanksMs);
+};
+screenEl.onerror = () => { if (kstate === "video") showBaby(); };  // missing video: back to the baby
+
+function kioskStep(dets) {
+  const now = Date.now(), frame = video.videoWidth * video.videoHeight;
+  const found = new Set(dets.filter(d => d.target && d.score >= KIOSK.minScore &&
+    d.box.width * d.box.height >= KIOSK.minArea * frame).map(d => d.target));
+  if (found.size) lastTarget = now;
+  else if (needEmpty && now - lastTarget >= KIOSK.emptyMs) needEmpty = false;
+  for (const k of found) {
+    if (now - (lastHere[k] || 0) > 500) firstSeen[k] = now;  // allow a missed frame or two
+    lastHere[k] = now;
+  }
+  if (kstate !== "baby" || needEmpty || now - babySince < KIOSK.cooldownMs) return;
+  for (const k of Object.keys(OBJECTS)) {  // phone first
+    if (found.has(k) && now - firstSeen[k] >= KIOSK.steadyMs) { playObject(k); break; }
+  }
+}
+
 async function keepAwake() {
   try { if ("wakeLock" in navigator) await navigator.wakeLock.request("screen"); } catch (_) {}
 }
 
-startBtn.onclick = async () => {
-  startBtn.disabled = true;
+async function start(asKiosk) {
+  kiosk = asKiosk;
+  startBtn.disabled = startDetectBtn.disabled = true;
+  if (kiosk) {
+    document.body.classList.add("kiosk");
+    showBaby();  // start inside the tap so the browser allows sound
+  }
   // Unlock speech on iOS: it only plays after a user gesture.
   if ("speechSynthesis" in window) speechSynthesis.speak(new SpeechSynthesisUtterance(" "));
   try {
@@ -256,7 +334,7 @@ startBtn.onclick = async () => {
     await openCamera();
     banner.textContent = "Downloading model (about 18 MB, first time only)...";
     detector = await loading;
-    startBtn.classList.add("hidden");
+    document.getElementById("starts").classList.add("hidden");
     document.getElementById("controls").classList.remove("hidden");
     banner.textContent = IDLE_TEXT;
     running = true;
@@ -266,9 +344,14 @@ startBtn.onclick = async () => {
     banner.textContent = e.name === "NotAllowedError"
       ? "Camera blocked. Allow camera access in browser settings, then reload."
       : `Error: ${e.message}`;
-    startBtn.disabled = false;
+    startBtn.disabled = startDetectBtn.disabled = false;
+    document.body.classList.remove("kiosk");
+    screenEl.pause();
   }
-};
+}
+const startDetectBtn = document.getElementById("startDetect");
+startBtn.onclick = () => start(true);
+startDetectBtn.onclick = () => start(false);
 
 document.getElementById("flip").onclick = async () => {
   facing = facing === "environment" ? "user" : "environment";
@@ -278,6 +361,7 @@ muteBtn.onclick = () => {
   soundOn = !soundOn;
   muteBtn.textContent = soundOn ? "Sound on" : "Sound off";
   if (!soundOn) speechSynthesis.cancel();
+  screenEl.muted = !soundOn;
 };
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible" && running) keepAwake();
