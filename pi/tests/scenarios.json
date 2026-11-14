@@ -1,0 +1,16 @@
+[
+ {"id":"S1","desc":"one person, phone 5-8s","objs":[["cell phone",5,8,0.9,0.05]],"expect":[["phone",6]]},
+ {"id":"S2","desc":"two people at once: phone + book 5-8s","objs":[["cell phone",5,8,0.9,0.05],["book",5,8,0.9,0.1]],"expect":[["phone",6]]},
+ {"id":"S3","desc":"crowd: 5 tiny background phones all the time, one real phone 10-12s","objs":[["cell phone",0,40,0.8,0.004],["cell phone",0,40,0.7,0.006],["cell phone",0,40,0.6,0.003],["remote",0,40,0.6,0.005],["cell phone",0,40,0.9,0.01],["cell phone",10,12,0.9,0.04]],"expect":[["phone",11]]},
+ {"id":"S4","desc":"phone left behind 5-40s","objs":[["cell phone",5,40,0.9,0.05]],"expect":[["phone",6]]},
+ {"id":"S5","desc":"queue: A phone 5-9 (pulls out mid video), B book 13-25 during thanks","objs":[["cell phone",5,9,0.9,0.05],["book",13,25,0.9,0.1]],"expect":[["phone",6],["book",18]]},
+ {"id":"S6","desc":"impatient B: A phone 5-12.5, B book 13.5-30 then again 33-40","objs":[["cell phone",5,12.5,0.9,0.05],["book",13.5,30,0.9,0.1],["book",33,40,0.9,0.1]],"expect":[["phone",6],["book",34]]},
+ {"id":"S7","desc":"phone flashed for 0.6s","objs":[["cell phone",5,5.6,0.9,0.05]],"expect":[]},
+ {"id":"S8","desc":"flicker: phone 5-10, model misses every 3rd frame","objs":[["cell phone",5,10,0.9,0.05]],"miss_every":3,"expect":[["phone",6]]},
+ {"id":"S9","desc":"slow device 0.6 s per frame, phone 5-10","objs":[["cell phone",5,10,0.9,0.05]],"frame_dt":0.6,"expect":[["phone",6.6]]},
+ {"id":"S10","desc":"swap without gap: phone 5-5.7, book 5.7-8","objs":[["cell phone",5,5.7,0.9,0.05],["book",5.7,8,0.9,0.1]],"expect":[["book",6.7]]},
+ {"id":"S11","desc":"toy only, black phone read as remote 20-22","objs":[["teddy bear",5,7,0.8,0.1],["remote",20,22,0.6,0.03]],"expect":[["toy",6],["phone",21]]},
+ {"id":"S12","desc":"skip key 0 at 8s during phone video","objs":[["cell phone",5,6.5,0.9,0.05]],"keys":[[8,"skip"]],"expect":[["phone",6]],"expect_baby_back":11},
+ {"id":"S13","desc":"phone already in view at boot 0-10, then again 15-17","objs":[["cell phone",0,10,0.9,0.05],["cell phone",15,17,0.9,0.05]],"expect":[["phone",16]]},
+ {"id":"S14","desc":"weak score 0.3 phone 5-10 (below 0.35)","objs":[["cell phone",5,10,0.3,0.05]],"expect":[]}
+]

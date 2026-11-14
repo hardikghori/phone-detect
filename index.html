@@ -269,6 +269,7 @@ const thanksEl = document.getElementById("thanks");
 thanksEl.src = KIOSK.thanks;
 let kiosk = false, kstate = "baby", needEmpty = true, lastTarget = Date.now(), babySince = Date.now();
 const firstSeen = {}, lastHere = {};
+let prevStep = Date.now(), frameMs = 200;  // average time per frame, so slow phones still count "steady"
 
 function showBaby() {
   thanksEl.classList.add("hidden");
@@ -299,12 +300,17 @@ screenEl.onerror = () => { if (kstate === "video") showBaby(); };  // missing vi
 
 function kioskStep(dets) {
   const now = Date.now(), frame = video.videoWidth * video.videoHeight;
+  frameMs = 0.8 * frameMs + 0.2 * (now - prevStep);
+  prevStep = now;
+  // A missed frame or two must not restart the steady timer. With a fixed 500 ms gap,
+  // a phone that needs 600 ms per frame restarted it every frame and nothing ever played.
+  const gapMs = Math.max(500, 2.5 * frameMs);
   const found = new Set(dets.filter(d => d.target && d.score >= KIOSK.minScore &&
     d.box.width * d.box.height >= KIOSK.minArea * frame).map(d => d.target));
   if (found.size) lastTarget = now;
   else if (needEmpty && now - lastTarget >= KIOSK.emptyMs) needEmpty = false;
   for (const k of found) {
-    if (now - (lastHere[k] || 0) > 500) firstSeen[k] = now;  // allow a missed frame or two
+    if (now - (lastHere[k] || 0) > gapMs || !(k in firstSeen)) firstSeen[k] = now;
     lastHere[k] = now;
   }
   if (kstate !== "baby" || needEmpty || now - babySince < KIOSK.cooldownMs) return;

@@ -279,6 +279,7 @@ def main() -> None:
     last_target = time.monotonic()  # last time any object was in the room
     started = time.monotonic()
     baby_since = started           # when the crying baby came back on screen (for the cooldown)
+    prev_frame, frame_s = started, 0.1  # average seconds per frame, so slow devices still count "steady"
 
     def start(name: str, score: float) -> None:
         nonlocal state, need_empty
@@ -320,6 +321,11 @@ def main() -> None:
                 continue
             found = targets(det.detect(frame, cfg["min_score"]), cfg)
             now = time.monotonic()
+            frame_s = 0.8 * frame_s + 0.2 * (now - prev_frame)
+            prev_frame = now
+            # A missed frame or two must not restart the steady timer. On a slow device (Pi 3, about
+            # 0.5 s per frame) a fixed 0.5 s gap reset it on every frame and nothing ever played.
+            gap_s = max(0.5, 2.5 * frame_s)
             if found:
                 last_target = now
             elif need_empty and now - last_target >= cfg["empty_seconds"]:
@@ -327,7 +333,7 @@ def main() -> None:
                 print("[kiosk] room is empty, ready for the next person")
 
             for name in found:
-                if now - last_seen.get(name, 0) > 0.5:  # allow a missed frame or two
+                if now - last_seen.get(name, 0) > gap_s or name not in first_seen:
                     first_seen[name] = now
                 last_seen[name] = now
 
