@@ -7,7 +7,7 @@ What it does: the screen shows a crying baby. A camera looks down into a small d
 - A camera: USB webcam, or a ribbon camera for the Jetson (IMX219 type)
 - The digital screen with an HDMI or DisplayPort cable, and speakers if the screen has none
 - USB keyboard and mouse for setup
-- Wi-Fi or a network cable **for setup only**
+- Internet **for setup only** (about 10 minutes). Wi-Fi without antennas is too slow: use a network cable, or plug in a phone with a USB cable and turn on USB tethering
 - The 4 videos from the content team on a USB stick: `baby.mp4`, `phone.mp4`, `book.mp4`, `toy.mp4`
 
 ## Step 1: Build the room
@@ -43,6 +43,8 @@ The camera picture opens with green boxes around what it sees. Put each real obj
 **Take a photo of the screen for each object and send it to Hardik.** If an object does not show up, tell him which one: he can tune it or train the model on your exact objects.
 
 ## Step 6: Add the 4 videos
+The kit already has 4 labeled stand-in videos (colored screens that say "CRYING BABY (placeholder)", "PHONE VIDEO (placeholder)" and so on), so Step 7 works before the real videos arrive. Replace them when you have the real ones.
+
 Plug in the USB stick. It shows up under `/media/` (your username, then the stick's name). Run one line per video:
 ```
 bash add_video.sh /media/YOURNAME/STICKNAME/baby.mp4 baby
@@ -59,6 +61,7 @@ The thank-you screen is already included (`videos/thanks.png`). To use your own,
 ```
 The crying baby plays full screen. Put a phone in the room: after about 1 second the phone video plays, then thank you, then the baby again.
 - Take the object out before the next person. A new object only counts after the room has been empty for 2 seconds, so a left-behind object never replays.
+- Cooldown: after the baby comes back, the camera is ignored for 3 seconds so the baby always cries for a moment. Change `cooldown_seconds` in `config.yaml`.
 - Keys: `1` phone video, `2` book video, `3` toy video, `0` skip, `q` quit.
 
 ## Step 8: Make it start by itself

@@ -7,6 +7,8 @@ The screen loops a crying baby video. A camera looks down into a small doll-hous
 ## How it decides
 - The object must sit in the room for 1 second (`steady_seconds`) with enough model confidence (`min_score`).
 - After a video, the room must be empty for 2 seconds (`empty_seconds`) before the next object counts. A left-behind object never replays.
+- After the baby comes back, the camera is ignored for 3 seconds (`cooldown_seconds`).
+- `videos/` ships with labeled placeholder videos. Swap in the real ones with `add_video.sh`.
 - If two objects are in the room, the one listed first in `config.yaml` wins.
 - Every play is logged in `plays.csv`.
 

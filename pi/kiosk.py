@@ -278,6 +278,7 @@ def main() -> None:
     last_seen: dict[str, float] = {}
     last_target = time.monotonic()  # last time any object was in the room
     started = time.monotonic()
+    baby_since = started           # when the crying baby came back on screen (for the cooldown)
 
     def start(name: str, score: float) -> None:
         nonlocal state, need_empty
@@ -288,13 +289,13 @@ def main() -> None:
         first_seen.clear()
 
     def finished() -> None:
-        nonlocal state
+        nonlocal state, baby_since
         if state == "video" and cfg["thanks"]:
             player.show(cfg["thanks"], image_s=cfg.get("thanks_seconds", 3))
             state = "thanks"
         else:
             player.show(cfg["idle_video"], loop=True)
-            state = "baby"
+            state, baby_since = "baby", time.monotonic()
             print("[kiosk] crying baby on screen, waiting for an object")
 
     try:
@@ -330,7 +331,8 @@ def main() -> None:
                     first_seen[name] = now
                 last_seen[name] = now
 
-            if state == "baby" and not need_empty:
+            cooled = now - baby_since >= cfg.get("cooldown_seconds", 0)
+            if state == "baby" and not need_empty and cooled:
                 for name in cfg["objects"]:  # config order is priority order
                     if name in found and now - first_seen[name] >= cfg["steady_seconds"]:
                         start(name, found[name])

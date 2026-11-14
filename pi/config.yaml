@@ -13,6 +13,7 @@ thanks_seconds: 3
 min_score: 0.35           # model confidence needed to count a sighting
 steady_seconds: 1.0       # the object must sit in the room this long before its video plays
 empty_seconds: 2.0        # after a video, the room must be empty this long before the next object counts
+cooldown_seconds: 3       # after the baby comes back, ignore the camera this long (the baby always cries a bit)
 
 # One entry per object, in priority order. Keys 1, 2, 3 play them by hand.
 # classes: COCO names that count as this object (see detector.py for all 80).
