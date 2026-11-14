@@ -4,6 +4,8 @@ The screen loops a crying baby video. A camera looks down into a small doll-hous
 
 **Setting it up for the first time? Follow [SETUP_GUIDE.md](SETUP_GUIDE.md).**
 
+**Want to understand it? Read [HOW_IT_WORKS.md](HOW_IT_WORKS.md).**
+
 ## How it decides
 - The object must sit in the room for 1 second (`steady_seconds`) with enough model confidence (`min_score`).
 - After a video, the room must be empty for 2 seconds (`empty_seconds`) before the next object counts. A left-behind object never replays.
